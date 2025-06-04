@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Reference Info - MVP-1</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎤 Live Reference Info</h1>
+            <p class="subtitle">リアルタイム参考情報表示ツール - MVP-1</p>
+        </header>
+        
+        <main class="main-content">
+            <!-- 左カラム: 入力エリア -->
+            <div class="input-panel">
+                <div class="panel">
+                    <h2>📝 テキスト入力</h2>
+                    <textarea 
+                        id="inputText" 
+                        placeholder="ここにテキストを入力してください&#10;（手入力・音声認識結果・ペースト対応）"
+                        rows="10"
+                    ></textarea>
+                    
+                    <div class="controls">
+                        <button id="extractBtn" class="btn-primary">🔍 キーワード抽出</button>
+                        <button id="clearBtn" class="btn-secondary">🗑️ クリア</button>
+                    </div>
+                    
+                    <div class="keywords-section">
+                        <h3>🏷️ 抽出キーワード</h3>
+                        <div id="keywordTags" class="keyword-tags"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 右カラム: 検索結果 -->
+            <div class="results-panel">
+                <div class="panel">
+                    <h2>📋 検索結果</h2>
+                    <div id="searchStatus" class="search-status">
+                        キーワードを入力して検索を開始してください
+                    </div>
+                    <div id="searchResults" class="search-results"></div>
+                </div>
+            </div>
+        </main>
+        
+        <footer>
+            <div class="status-bar">
+                <span id="lastUpdate">最終更新: --:--</span>
+                <span id="searchCount">検索回数: 0</span>
+            </div>
+        </footer>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html> 
