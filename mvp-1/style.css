@@ -354,6 +354,89 @@ footer {
   }
 }
 
+/* OpenAI検索結果のスタイル */
+.openai-result {
+  background: linear-gradient(135deg, #faf5ff 0%, #f0f9ff 100%);
+  border: 2px solid var(--primary);
+  position: relative;
+}
+
+.openai-result::before {
+  content: '🤖';
+  position: absolute;
+  top: 10px;
+  right: 15px;
+  font-size: 1.2em;
+  opacity: 0.8;
+}
+
+.result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 1rem;
+}
+
+.result-title-openai {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--primary);
+  margin-bottom: 0.25rem;
+}
+
+.result-source {
+  font-size: 0.8rem;
+  color: var(--accent);
+  font-weight: 500;
+  background: rgba(240, 147, 251, 0.1);
+  padding: 0.25rem 0.5rem;
+  border-radius: 12px;
+}
+
+.openai-content {
+  line-height: 1.7;
+  color: var(--text-primary);
+  white-space: pre-line;
+}
+
+.result-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.search-more-btn, .copy-btn {
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  background: white;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.search-more-btn:hover {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.copy-btn:hover {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}
+
+/* リアルタイム入力フィードバック */
+.search-status.realtime {
+  background: linear-gradient(135deg, #e6fffa 0%, #f0fff4 100%);
+  color: var(--primary);
+  border: 1px solid var(--primary);
+}
+
 /* スクロールバーカスタマイズ */
 .search-results::-webkit-scrollbar {
   width: 6px;

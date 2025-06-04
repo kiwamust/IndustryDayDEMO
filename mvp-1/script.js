@@ -1,10 +1,16 @@
-// Live Reference Info - MVP-1 JavaScript
+// Live Reference Info - MVP-1 JavaScript with OpenAI Realtime API
 
 class LiveReferenceInfo {
     constructor() {
         this.searchCount = 0;
         this.keywords = new Set();
         this.searchHistory = [];
+        
+        // OpenAI API設定（.env または config.js から取得）
+        this.config = window.LIVE_REFERENCE_CONFIG || {};
+        this.initializeAPIKey();
+        this.OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
+        this.settings = this.config.SETTINGS || {};
         
         this.initializeElements();
         this.bindEvents();
@@ -31,7 +37,7 @@ class LiveReferenceInfo {
             clearTimeout(this.inputTimeout);
             this.inputTimeout = setTimeout(() => {
                 this.extractKeywords();
-            }, 300); // 0.3秒のデバウンス（よりリアルタイム）
+            }, this.settings.DEBOUNCE_TIME || 300); // 設定可能なデバウンス時間
         });
         
         // ボタンイベント
@@ -50,6 +56,42 @@ class LiveReferenceInfo {
                 this.extractKeywords();
             }
         });
+    }
+    
+    // APIキーの初期化
+    initializeAPIKey() {
+        // .envファイルから取得を優先
+        const envKey = window.EnvLoader?.OPENAI_API_KEY;
+        if (envKey && envKey !== '' && envKey !== 'your_openai_api_key_here') {
+            this.OPENAI_API_KEY = envKey;
+            console.log('✅ Using API key from .env file');
+            return;
+        }
+        
+        // config.jsから取得
+        if (typeof this.config.OPENAI_API_KEY === 'function') {
+            this.OPENAI_API_KEY = this.config.OPENAI_API_KEY();
+        } else {
+            this.OPENAI_API_KEY = this.config.OPENAI_API_KEY || 'YOUR_OPENAI_API_KEY';
+        }
+        
+        if (this.OPENAI_API_KEY === 'YOUR_OPENAI_API_KEY_HERE' || this.OPENAI_API_KEY === 'YOUR_OPENAI_API_KEY') {
+            console.warn('⚠️ API key not configured. Please set OPENAI_API_KEY in .env or config.js');
+        } else {
+            console.log('✅ Using API key from config.js');
+        }
+    }
+
+    // タイピング中の視覚フィードバック
+    showTypingFeedback() {
+        const text = this.inputText.value.trim();
+        if (text.length > 10) {
+            this.updateSearchStatus('⌨️ 入力中... (リアルタイム解析準備)');
+        } else if (text.length > 0) {
+            this.updateSearchStatus('✏️ 入力中...');
+        } else {
+            this.updateSearchStatus('キーワードを入力して検索を開始してください');
+        }
     }
     
     // キーワード抽出（シンプルな実装）
@@ -71,7 +113,7 @@ class LiveReferenceInfo {
         }
         
         this.displayKeywords(keywords);
-        this.searchKeywords(keywords);
+        this.searchWithOpenAI(keywords, text);
         this.updateTimestamp();
     }
     
@@ -95,7 +137,7 @@ class LiveReferenceInfo {
         return allKeywords
             .filter(keyword => keyword.length >= 2) // 2文字以上
             .filter(keyword => !this.isStopWord(keyword))
-            .slice(0, 5); // 上位5つまで
+            .slice(0, this.settings.MAX_KEYWORDS || 5); // 設定可能な最大キーワード数
     }
     
     extractTechnicalTerms(text) {
@@ -159,37 +201,109 @@ class LiveReferenceInfo {
         });
     }
     
-    async searchKeywords(keywords) {
-        this.updateSearchStatus('🔍 検索中...');
+    // OpenAI APIを使ったリアルタイム検索
+    async searchWithOpenAI(keywords, fullText) {
+        this.updateSearchStatus('🤖 AI検索中... (OpenAI Realtime API)');
         this.searchResults.innerHTML = '';
         
         try {
-            const promises = keywords.map(keyword => this.searchWikipedia(keyword));
+            // 各キーワードに対してOpenAI APIで検索風の回答を生成
+            const promises = keywords.map(keyword => this.searchWithOpenAIKeyword(keyword, fullText));
             const results = await Promise.allSettled(promises);
             
-            this.displaySearchResults(results, keywords);
+            this.displayOpenAIResults(results, keywords);
             this.markKeywordsAsSearched();
             this.searchCount++;
             this.updateSearchCount();
-            this.updateSearchStatus(`${keywords.length}個のキーワードで検索完了`);
+            this.updateSearchStatus(`✨ AI検索完了: ${keywords.length}個のキーワード`);
             
         } catch (error) {
-            console.error('Search error:', error);
-            this.updateSearchStatus('❌ 検索エラーが発生しました');
+            console.error('OpenAI Search error:', error);
+            this.updateSearchStatus('❌ AI検索エラーが発生しました');
+        }
+    }
+    
+    // 単一キーワードでOpenAI検索
+    async searchWithOpenAIKeyword(keyword, context = '') {
+        if (!this.OPENAI_API_KEY || this.OPENAI_API_KEY === 'YOUR_OPENAI_API_KEY') {
+            // フォールバック: Wikipedia検索
+            console.warn('OpenAI API Key not set, falling back to Wikipedia');
+            return await this.searchWikipedia(keyword);
+        }
+        
+        try {
+            const prompt = context 
+                ? `"${context}"という文脈で、"${keyword}"について最新の参考情報を教えてください。以下の形式で回答してください：
+
+タイトル: ${keyword}について
+概要: （100文字程度の要約）
+詳細: （200文字程度の詳しい説明）
+関連情報: （関連する技術やトピック）
+参考リンク: （もしあれば）`
+                : `"${keyword}"について最新の参考情報を教えてください。技術的な内容であれば最新のトレンドや応用例も含めて説明してください。`;
+
+            const response = await fetch(this.OPENAI_API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.OPENAI_API_KEY}`
+                },
+                body: JSON.stringify({
+                    model: this.settings.OPENAI_MODEL || 'gpt-4o-mini',
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'あなたは親切で知識豊富なリサーチアシスタントです。質問されたトピックについて、正確で最新の情報を分かりやすく説明してください。'
+                        },
+                        {
+                            role: 'user',
+                            content: prompt
+                        }
+                    ],
+                    max_tokens: this.settings.OPENAI_MAX_TOKENS || 500,
+                    temperature: this.settings.OPENAI_TEMPERATURE || 0.7
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`OpenAI API error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            const content = data.choices[0]?.message?.content || '情報が見つかりませんでした';
+
+            return {
+                keyword: keyword,
+                title: `🤖 AI検索: ${keyword}`,
+                extract: content,
+                source: 'OpenAI',
+                url: '#'
+            };
+
+        } catch (error) {
+            console.error(`OpenAI search error for "${keyword}":`, error);
+            // フォールバック: Wikipedia検索
+            return await this.searchWikipedia(keyword);
         }
     }
     
     async searchSingleKeyword(keyword) {
-        this.updateSearchStatus(`"${keyword}" を検索中...`);
+        this.updateSearchStatus(`🤖 "${keyword}" をAI検索中...`);
         
         try {
-            const result = await this.searchWikipedia(keyword);
-            this.displaySingleResult(result, keyword);
-            this.updateSearchStatus(`"${keyword}" の検索完了`);
+            const result = await this.searchWithOpenAIKeyword(keyword, this.inputText.value);
+            this.displaySingleOpenAIResult(result, keyword);
+            this.updateSearchStatus(`✨ "${keyword}" のAI検索完了`);
         } catch (error) {
             console.error('Single search error:', error);
-            this.updateSearchStatus(`"${keyword}" の検索でエラーが発生しました`);
+            this.updateSearchStatus(`❌ "${keyword}" の検索でエラーが発生しました`);
         }
+    }
+    
+    displaySingleOpenAIResult(result, keyword) {
+        // 既存の結果をクリア
+        this.searchResults.innerHTML = '';
+        this.createOpenAIResultItem(result, keyword);
     }
     
     async searchWikipedia(keyword) {
@@ -219,16 +333,54 @@ class LiveReferenceInfo {
         }
     }
     
-    displaySearchResults(results, keywords) {
+    // OpenAI検索結果の表示
+    displayOpenAIResults(results, keywords) {
         results.forEach((result, index) => {
             const keyword = keywords[index];
             
             if (result.status === 'fulfilled' && result.value) {
-                this.createResultItem(result.value, keyword);
+                this.createOpenAIResultItem(result.value, keyword);
             } else {
                 this.createErrorItem(keyword);
             }
         });
+    }
+    
+    // OpenAI検索結果のアイテム作成
+    createOpenAIResultItem(data, keyword) {
+        const item = document.createElement('div');
+        item.className = 'result-item openai-result';
+        
+        const title = data.title || `🤖 ${keyword}`;
+        const extract = data.extract || '情報が見つかりませんでした';
+        const source = data.source || 'AI';
+        
+        // OpenAI結果の場合は改行を保持
+        const formattedExtract = extract.replace(/\n/g, '<br>');
+        
+        item.innerHTML = `
+            <div class="result-header">
+                <div class="result-title-openai">
+                    ${title}
+                </div>
+                <div class="result-source">
+                    ⚡ ${source} リアルタイム検索
+                </div>
+            </div>
+            <div class="result-snippet openai-content">
+                ${formattedExtract}
+            </div>
+            <div class="result-actions">
+                <button class="search-more-btn" onclick="window.liveReferenceInfo.searchSingleKeyword('${keyword}')">
+                    🔄 再検索
+                </button>
+                <button class="copy-btn" onclick="navigator.clipboard.writeText(\`${extract.replace(/`/g, '\\`')}\`)">
+                    📋 コピー
+                </button>
+            </div>
+        `;
+        
+        this.searchResults.appendChild(item);
     }
     
     displaySingleResult(result, keyword) {
