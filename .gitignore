@@ -3,6 +3,10 @@
 *.env
 mvp-1/config.js
 
+# Don't ignore template files
+!mvp-1/config.example.js
+!mvp-1/load-env.js
+
 # OS generated files
 .DS_Store
 .DS_Store?

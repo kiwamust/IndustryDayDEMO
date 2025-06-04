@@ -6,9 +6,9 @@ class LiveReferenceInfo {
         this.keywords = new Set();
         this.searchHistory = [];
         
-        // OpenAI API設定（config.jsから取得）
+        // OpenAI API設定（.env または config.js から取得）
         this.config = window.LIVE_REFERENCE_CONFIG || {};
-        this.OPENAI_API_KEY = this.config.OPENAI_API_KEY || 'YOUR_OPENAI_API_KEY';
+        this.initializeAPIKey();
         this.OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
         this.settings = this.config.SETTINGS || {};
         
@@ -58,6 +58,30 @@ class LiveReferenceInfo {
         });
     }
     
+    // APIキーの初期化
+    initializeAPIKey() {
+        // .envファイルから取得を優先
+        const envKey = window.EnvLoader?.OPENAI_API_KEY;
+        if (envKey && envKey !== '' && envKey !== 'your_openai_api_key_here') {
+            this.OPENAI_API_KEY = envKey;
+            console.log('✅ Using API key from .env file');
+            return;
+        }
+        
+        // config.jsから取得
+        if (typeof this.config.OPENAI_API_KEY === 'function') {
+            this.OPENAI_API_KEY = this.config.OPENAI_API_KEY();
+        } else {
+            this.OPENAI_API_KEY = this.config.OPENAI_API_KEY || 'YOUR_OPENAI_API_KEY';
+        }
+        
+        if (this.OPENAI_API_KEY === 'YOUR_OPENAI_API_KEY_HERE' || this.OPENAI_API_KEY === 'YOUR_OPENAI_API_KEY') {
+            console.warn('⚠️ API key not configured. Please set OPENAI_API_KEY in .env or config.js');
+        } else {
+            console.log('✅ Using API key from config.js');
+        }
+    }
+
     // タイピング中の視覚フィードバック
     showTypingFeedback() {
         const text = this.inputText.value.trim();
