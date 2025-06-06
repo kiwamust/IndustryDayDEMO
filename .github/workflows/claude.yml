@@ -133,9 +133,14 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           trigger_phrase: "@claude"
 
-  # 新規追加：自動コードレビュージョブ
+  # 制限付き自動コードレビュージョブ
   auto-review:
-    if: github.event_name == 'pull_request'
+    if: |
+      github.event_name == 'pull_request' && 
+      github.event.action == 'opened' &&
+      !contains(github.event.pull_request.title, '[skip-review]') &&
+      !contains(github.event.pull_request.title, 'WIP') &&
+      github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -146,101 +151,77 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Run Automatic Code Review
+      - name: Check PR Size Limits
+        id: size-check
+        run: |
+          # 変更ファイル数をチェック
+          CHANGED_FILES=$(git diff --name-only HEAD~1 | wc -l)
+          echo "changed_files=$CHANGED_FILES" >> $GITHUB_OUTPUT
+          
+          # 大きな変更の場合はスキップ
+          if [ "$CHANGED_FILES" -gt 15 ]; then
+            echo "skip_review=true" >> $GITHUB_OUTPUT
+            echo "reason=ファイル数が多すぎます ($CHANGED_FILES ファイル)" >> $GITHUB_OUTPUT
+          else
+            # 変更行数もチェック
+            CHANGED_LINES=$(git diff --shortstat HEAD~1 | grep -o '[0-9]* insertion' | cut -d' ' -f1 || echo "0")
+            if [ "$CHANGED_LINES" -gt 500 ]; then
+              echo "skip_review=true" >> $GITHUB_OUTPUT
+              echo "reason=変更行数が多すぎます ($CHANGED_LINES 行)" >> $GITHUB_OUTPUT
+            else
+              echo "skip_review=false" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Post Size Limit Message
+        if: steps.size-check.outputs.skip_review == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '⚠️ **自動レビューをスキップしました**\n\n' +
+                    '理由: ${{ steps.size-check.outputs.reason }}\n\n' +
+                    '大きな変更のため、手動でのレビューを推奨します。\n' +
+                    '必要な場合は `@claude このPRをレビューして` でメンションしてください。'
+            });
+
+      - name: Run Lightweight Code Review
+        if: steps.size-check.outputs.skip_review == 'false'
         id: auto-review
         uses: anthropics/claude-code-base-action@beta
         with:
           prompt: |
-            このプルリクエストのコード変更を詳細にレビューしてください。
-            以下の観点で評価し、具体的な修正提案をコメントで提供してください：
+            このPRの変更を簡潔にレビューしてください（最重要点のみ）：
 
-            ## レビュー観点
-            1. **🐛 バグとエラーハンドリング**
-               - 潜在的なバグやエラーケースの特定
-               - 例外処理の不備やnull/undefined チェックの漏れ
-               - エッジケースの考慮
+            **チェック項目：**
+            1. 🐛 **バグ・エラー** - 明らかなバグやエラーハンドリングの問題
+            2. 🔒 **セキュリティ** - 脆弱性や機密情報漏洩リスク
+            3. ⚡ **重大なパフォーマンス問題** - 明らかに非効率な実装
 
-            2. **📝 コード品質**
-               - 可読性とメンテナンス性
-               - 命名規則の遵守
-               - コードの重複や不要な複雑さ
-               - 関数・クラスの責務の明確性
+            **出力形式：**
+            ## 🤖 簡易自動レビュー
 
-            3. **⚡ パフォーマンス**
-               - 非効率なアルゴリズムやクエリ
-               - メモリリークの可能性
-               - 不要な計算やAPI呼び出し
-               - データベースアクセスの最適化
+            ### 🔴 修正必須項目
+            [問題がある場合のみ記載]
 
-            4. **🔒 セキュリティ**
-               - XSS、SQL injection等の脆弱性
-               - 認証・認可の不備
-               - 機密情報の漏洩リスク
-               - 入力値検証の確認
+            ### ✅ 確認完了
+            - 基本的なバグチェック: OK
+            - セキュリティチェック: OK  
+            - パフォーマンスチェック: OK
 
-            5. **✅ ベストプラクティス**
-               - 言語・フレームワーク固有の慣例
-               - アーキテクチャパターンの適切性
-               - テストカバレッジの確認
-               - ドキュメント・コメントの充実度
-
-            ## 出力形式
-            レビュー結果は以下のチェックリスト形式のマークダウンで出力してください：
-
-            ## 🤖 自動コードレビュー結果
-
-            ### 📋 修正チェックリスト
-            各項目を確認・修正したら `- [x]` にチェックを入れてください：
-
-            #### 🔴 高優先度（修正必須）
-            - [ ] **📁 `[ファイル名:行番号]`** - [問題の要約]
-              - **問題:** [具体的な問題の説明]
-              - **修正案:** `[修正内容の要約]`
-              - **理由:** [修正が必要な理由]
-              <details>
-              <summary>🔧 修正コード例</summary>
-              
-              ```[言語]
-              [修正後のコード例]
-              ```
-              </details>
-
-            #### 🟡 中優先度（修正推奨）
-            - [ ] **📁 `[ファイル名:行番号]`** - [問題の要約]
-              - **問題:** [具体的な問題の説明]
-              - **修正案:** `[修正内容の要約]`
-              - **理由:** [修正が推奨される理由]
-
-            #### 🟢 低優先度（改善提案）
-            - [ ] **📁 `[ファイル名:行番号]`** - [改善案の要約]
-              - **提案:** [具体的な改善提案]
-              - **効果:** [改善による効果]
-
-            ### ✅ 良い実装ポイント
-            - ✅ [具体的な良い実装ポイント1]
-            - ✅ [具体的な良い実装ポイント2]
-            - ✅ [具体的な良い実装ポイント3]
-
-            ### 📊 レビューサマリー
-            | 項目 | 結果 |
-            |------|------|
-            | 🔴 修正必須 | [数] 件 |
-            | 🟡 修正推奨 | [数] 件 |
-            | 🟢 改善提案 | [数] 件 |
-            | **総合評価** | **[🔴要修正/🟡要検討/🟢承認可能]** |
-
-            **💬 レビューコメント:** [総合的な評価とアドバイス]
-
-            **注意:** 
-            - 重要な問題が見つからない場合でも、コードの良い点を積極的に評価してください
-            - チェックリストは修正完了時にチェックを入れて進捗を管理してください
-            - 質問がある場合は `@claude [質問内容]` でメンションしてください
-          allowed_tools: "Bash(git diff --name-only HEAD~1),Bash(git diff HEAD~1),View,GlobTool,GrepTool"
+            **総合:** [問題なし/要確認] 
+            
+            詳細レビューが必要な場合は `@claude 詳細レビュー` でリクエストしてください。
+          allowed_tools: "Bash(git diff --name-only HEAD~1),Bash(git diff HEAD~1 --stat),View"
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          timeout_minutes: 10
+          timeout_minutes: 3
 
       - name: Post Review Comment
-        if: always()
+        if: steps.auto-review.conclusion == 'success' && steps.size-check.outputs.skip_review == 'false'
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -249,46 +230,32 @@ jobs:
             
             let reviewContent = '';
             
-            if ('${{ steps.auto-review.outputs.conclusion }}' === 'success') {
-              try {
-                const executionFile = '${{ steps.auto-review.outputs.execution_file }}';
-                if (fs.existsSync(executionFile)) {
-                  const executionLog = JSON.parse(fs.readFileSync(executionFile, 'utf8'));
-                  
-                  // Claude の最新の回答を取得
-                  for (let i = executionLog.length - 1; i >= 0; i--) {
-                    if (executionLog[i].role === 'assistant' && executionLog[i].content) {
-                      reviewContent = executionLog[i].content;
-                      break;
-                    }
+            try {
+              const executionFile = '${{ steps.auto-review.outputs.execution_file }}';
+              if (fs.existsSync(executionFile)) {
+                const executionLog = JSON.parse(fs.readFileSync(executionFile, 'utf8'));
+                
+                // Claude の最新の回答を取得
+                for (let i = executionLog.length - 1; i >= 0; i--) {
+                  if (executionLog[i].role === 'assistant' && executionLog[i].content) {
+                    reviewContent = executionLog[i].content;
+                    break;
                   }
                 }
-              } catch (error) {
-                console.error('Error reading execution file:', error);
-                reviewContent = '';
               }
+            } catch (error) {
+              console.error('Error reading execution file:', error);
             }
             
-            // レビューコメントを投稿
+            // 簡潔なレビューコメントを投稿
             if (reviewContent) {
               await github.rest.issues.createComment({
                 issue_number: context.issue.number,
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 body: reviewContent + '\n\n---\n' +
-                      '**🔄 自動レビューについて**\n' +
-                      '- このレビューはClaude AIによって自動生成されました\n' +
-                      '- 人間によるレビューも併せて実施することを推奨します\n' +
-                      '- 質問や追加のレビューが必要な場合は `@claude [質問内容]` でメンションしてください'
-              });
-            } else {
-              // レビューに失敗した場合のフォールバック
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: '⚠️ **自動コードレビューでエラーが発生しました**\n\n' +
-                      'ワークフローログを確認してください。\n' +
-                      '手動でのレビューを実施するか、`@claude このPRをレビューして` でメンションしてください。'
+                      '**🤖 簡易自動レビュー完了** | ' +
+                      '詳細レビュー: `@claude 詳細レビュー` | ' +
+                      'カスタム質問: `@claude [質問内容]`'
               });
             }
