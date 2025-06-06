@@ -23,18 +23,24 @@ Create a new PR by commenting:
 @claude pr "Feature: Add new authentication system"
 ```
 
-### 4. Automatic Code Review
-Automatically reviews all PRs when they are:
-- Opened
-- Synchronized (new commits)
-- Reopened
+### 4. Lightweight Automatic Code Review
+Automatically reviews PRs when they are **opened** (only), with smart limitations:
 
-The review includes:
-- 🐛 Bug detection
-- 📝 Code quality analysis
-- ⚡ Performance optimization suggestions
-- 🔒 Security vulnerability checks
-- ✅ Best practices recommendations
+**Review Triggers:**
+- PR opened (not draft, not WIP, not [skip-review])
+- Changed files ≤ 15
+- Changed lines ≤ 500
+
+**Review Focus:**
+- 🐛 Critical bugs and error handling
+- 🔒 Security vulnerabilities
+- ⚡ Major performance issues
+
+**Rate Limit Protection:**
+- Skip large PRs automatically
+- 3-minute timeout (vs 10-minute)
+- Simplified prompts
+- No synchronize/reopened triggers
 
 ## Setup Requirements
 
@@ -60,9 +66,14 @@ The review includes:
 @claude pr "Feature: Implement dark mode"
 ```
 
-### Ask Claude to review code:
+### Ask Claude for detailed review:
 ```
-@claude please review this PR for security issues
+@claude 詳細レビュー
+```
+
+### Skip automatic review (in PR title):
+```
+[skip-review] WIP: Refactoring user service
 ```
 
 ### General Claude assistance:
