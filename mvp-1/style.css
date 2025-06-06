@@ -199,6 +199,37 @@ header h1 {
   border-color: var(--primary);
 }
 
+/* Fn-Key Toggle Button */
+.fn-key-toggle {
+  position: relative;
+  font-size: 0.8rem;
+  min-width: 4rem;
+  font-weight: 600;
+}
+
+.fn-key-toggle.active {
+  background: #00ff00;
+  color: var(--primary);
+  border-color: #00ff00;
+  box-shadow: 0 0 8px rgba(0, 255, 0, 0.3);
+}
+
+.fn-key-toggle.active:hover {
+  background: #00cc00;
+  border-color: #00cc00;
+}
+
+.fn-key-toggle:not(.active) {
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+  border-color: var(--border);
+}
+
+.fn-key-toggle:not(.active):hover {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
 /* キーワードタグ */
 .keywords-section {
   margin-top: 2rem;

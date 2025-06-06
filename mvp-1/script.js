@@ -1,4 +1,538 @@
-// Live Reference Info - MVP-1 JavaScript with Enhanced AI Keyword Extraction
+// Live Reference Info - MVP-1 JavaScript with Enhanced AI Keyword Extraction & Voice Recognition
+
+// Global Hotkey System for Fn+Space voice recording (Willow AI style)
+class GlobalHotkey {
+    constructor(onStartRecording, onStopRecording) {
+        this.isRecording = false;
+        this.fnKeyPressed = false;
+        this.spaceKeyPressed = false;
+        this.isEnabled = false;
+        
+        // Callbacks
+        this.onStartRecording = onStartRecording;
+        this.onStopRecording = onStopRecording;
+        
+        // Key state tracking
+        this.keyStates = new Set();
+        
+        // Bind event handlers
+        this.handleKeyDown = this.handleKeyDown.bind(this);
+        this.handleKeyUp = this.handleKeyUp.bind(this);
+        this.handleWindowBlur = this.handleWindowBlur.bind(this);
+        this.handleWindowFocus = this.handleWindowFocus.bind(this);
+        this.handleVisibilityChange = this.handleVisibilityChange.bind(this);
+    }
+    
+    enable() {
+        if (this.isEnabled) return;
+        
+        this.isEnabled = true;
+        document.addEventListener('keydown', this.handleKeyDown, true);
+        document.addEventListener('keyup', this.handleKeyUp, true);
+        window.addEventListener('blur', this.handleWindowBlur);
+        window.addEventListener('focus', this.handleWindowFocus);
+        document.addEventListener('visibilitychange', this.handleVisibilityChange);
+        
+        console.log('[GlobalHotkey] Enabled - Press Fn+Space (or Ctrl+Space) for voice recording');
+    }
+    
+    disable() {
+        if (!this.isEnabled) return;
+        
+        this.isEnabled = false;
+        this.stopRecording();
+        
+        document.removeEventListener('keydown', this.handleKeyDown, true);
+        document.removeEventListener('keyup', this.handleKeyUp, true);
+        window.removeEventListener('blur', this.handleWindowBlur);
+        window.removeEventListener('focus', this.handleWindowFocus);
+        document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+        
+        console.log('[GlobalHotkey] Disabled');
+    }
+    
+    handleKeyDown(event) {
+        if (!this.isEnabled) return;
+        
+        // Track key states
+        this.keyStates.add(event.code);
+        
+        // Fn key detection (multiple possible codes and fallback)
+        const fnKeyCodes = ['Fn', 'FnLock', 'OSLeft', 'OSRight', 'MetaLeft', 'MetaRight'];
+        const isFnKey = fnKeyCodes.includes(event.code) || 
+                       event.key === 'Fn' || 
+                       (event.getModifierState && event.getModifierState('Fn')) ||
+                       event.code === 'ControlLeft' || // Fallback: use Ctrl as Fn
+                       event.ctrlKey; // Additional fallback
+        
+        if (isFnKey) {
+            this.fnKeyPressed = true;
+        }
+        
+        // Space key detection
+        if (event.code === 'Space') {
+            this.spaceKeyPressed = true;
+        }
+        
+        // Start recording when both Fn and Space are pressed
+        if (this.fnKeyPressed && this.spaceKeyPressed && !this.isRecording) {
+            event.preventDefault();
+            event.stopPropagation();
+            this.startRecording();
+        }
+    }
+    
+    handleKeyUp(event) {
+        if (!this.isEnabled) return;
+        
+        // Remove from key states
+        this.keyStates.delete(event.code);
+        
+        // Fn key release detection
+        const fnKeyCodes = ['Fn', 'FnLock', 'OSLeft', 'OSRight', 'MetaLeft', 'MetaRight'];
+        const isFnKeyRelease = fnKeyCodes.includes(event.code) || 
+                              event.key === 'Fn' ||
+                              event.code === 'ControlLeft' || // Fallback: use Ctrl as Fn
+                              (!event.ctrlKey && this.fnKeyPressed); // Ctrl release
+        
+        if (isFnKeyRelease) {
+            this.fnKeyPressed = false;
+        }
+        
+        // Space key release
+        if (event.code === 'Space') {
+            this.spaceKeyPressed = false;
+        }
+        
+        // Stop recording when either key is released
+        if ((!this.fnKeyPressed || !this.spaceKeyPressed) && this.isRecording) {
+            this.stopRecording();
+        }
+    }
+    
+    handleWindowBlur() {
+        // Reset key states when window loses focus
+        this.fnKeyPressed = false;
+        this.spaceKeyPressed = false;
+        this.keyStates.clear();
+        
+        if (this.isRecording) {
+            this.stopRecording();
+        }
+    }
+    
+    handleWindowFocus() {
+        // Reset states on focus
+        this.fnKeyPressed = false;
+        this.spaceKeyPressed = false;
+        this.keyStates.clear();
+    }
+    
+    handleVisibilityChange() {
+        if (document.hidden && this.isRecording) {
+            this.stopRecording();
+        }
+    }
+    
+    startRecording() {
+        if (this.isRecording) return;
+        
+        this.isRecording = true;
+        console.log('[GlobalHotkey] Starting voice recording...');
+        
+        if (this.onStartRecording) {
+            this.onStartRecording();
+        }
+    }
+    
+    stopRecording() {
+        if (!this.isRecording) return;
+        
+        this.isRecording = false;
+        console.log('[GlobalHotkey] Stopping voice recording...');
+        
+        if (this.onStopRecording) {
+            this.onStopRecording();
+        }
+    }
+    
+    getStatus() {
+        return {
+            isEnabled: this.isEnabled,
+            isRecording: this.isRecording,
+            fnPressed: this.fnKeyPressed,
+            spacePressed: this.spaceKeyPressed
+        };
+    }
+}
+
+// Fn-Key Trigger Mode (Willow AI style)
+class FnKeyMode {
+    constructor(voiceEnhancement, searchFunction) {
+        this.voiceEnhancement = voiceEnhancement;
+        this.searchFunction = searchFunction;
+        this.isActive = false;
+        this.recognition = null;
+        this.hotkey = null;
+        this.overlay = null;
+        
+        // Setup global hotkey
+        this.setupHotkey();
+        this.createModeIndicator();
+    }
+    
+    setupHotkey() {
+        this.hotkey = new GlobalHotkey(
+            () => this.startQuickCapture(),
+            () => this.stopQuickCapture()
+        );
+    }
+    
+    activate() {
+        if (this.isActive) return;
+        
+        this.isActive = true;
+        this.hotkey.enable();
+        this.showModeIndicator('fn-key-mode');
+        this.enableQuickCapture();
+        
+        console.log('[FnKeyMode] Activated - Press Fn+Space (or Ctrl+Space) for quick voice search');
+    }
+    
+    deactivate() {
+        if (!this.isActive) return;
+        
+        this.isActive = false;
+        this.hotkey.disable();
+        this.hideModeIndicator();
+        
+        if (this.recognition) {
+            this.recognition.stop();
+            this.recognition = null;
+        }
+        
+        console.log('[FnKeyMode] Deactivated');
+    }
+    
+    enableQuickCapture() {
+        // Setup speech recognition for quick capture
+        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+            console.error('[FnKeyMode] Speech recognition not supported');
+            return;
+        }
+        
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        this.recognition = new SpeechRecognition();
+        
+        // Quick capture settings
+        this.recognition.continuous = false;  // Single phrase mode
+        this.recognition.interimResults = false;
+        this.recognition.maxAlternatives = 3;
+        this.recognition.lang = 'ja-JP';
+        
+        this.recognition.onresult = (event) => {
+            this.processQuickCapture(event);
+        };
+        
+        this.recognition.onerror = (event) => {
+            console.error('[FnKeyMode] Recognition error:', event.error);
+            this.showQuickFeedback('❌ 音声認識エラー', 'error');
+        };
+        
+        this.recognition.onend = () => {
+            // Recognition ended
+            this.showQuickFeedback('🔍 検索中...', 'processing');
+        };
+    }
+    
+    startQuickCapture() {
+        if (!this.isActive || !this.recognition) return;
+        
+        try {
+            this.recognition.start();
+            this.showQuickFeedback('🎤 録音中... (Fn/Ctrlキーを離すと終了)', 'recording');
+        } catch (error) {
+            console.error('[FnKeyMode] Failed to start recognition:', error);
+            this.showQuickFeedback('❌ 録音開始失敗', 'error');
+        }
+    }
+    
+    stopQuickCapture() {
+        if (!this.recognition) return;
+        
+        try {
+            this.recognition.stop();
+        } catch (error) {
+            console.error('[FnKeyMode] Failed to stop recognition:', error);
+        }
+    }
+    
+    async processQuickCapture(event) {
+        try {
+            const results = Array.from(event.results[0]);
+            
+            // Use voice enhancement for better accuracy
+            const filteredResults = this.voiceEnhancement.filterByConfidence(results, 0.6);
+            
+            let bestTranscript = '';
+            if (filteredResults.length > 0) {
+                bestTranscript = this.voiceEnhancement.correctTerminology(filteredResults[0].transcript);
+            } else if (results.length > 0) {
+                bestTranscript = this.voiceEnhancement.correctTerminology(results[0].transcript);
+            }
+            
+            if (!bestTranscript.trim()) {
+                this.showQuickFeedback('❌ 音声が認識できませんでした', 'error');
+                return;
+            }
+            
+            console.log('[FnKeyMode] Quick capture result:', bestTranscript);
+            
+            // Extract keywords and perform search
+            await this.performQuickSearch(bestTranscript);
+            
+        } catch (error) {
+            console.error('[FnKeyMode] Error processing quick capture:', error);
+            this.showQuickFeedback('❌ 処理エラー', 'error');
+        }
+    }
+    
+    async performQuickSearch(query) {
+        try {
+            this.showQuickFeedback('🔍 検索中...', 'processing');
+            
+            // Use existing search function
+            if (this.searchFunction) {
+                await this.searchFunction(query);
+                this.showQuickFeedback('✅ 検索完了', 'success');
+            }
+            
+        } catch (error) {
+            console.error('[FnKeyMode] Search error:', error);
+            this.showQuickFeedback('❌ 検索エラー', 'error');
+        }
+    }
+    
+    createModeIndicator() {
+        const indicator = document.createElement('div');
+        indicator.id = 'fn-mode-indicator';
+        indicator.className = 'mode-indicator fn-key';
+        indicator.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 0.5rem 1rem;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            z-index: 10000;
+            border-left: 4px solid #00ff00;
+            display: none;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        `;
+        document.body.appendChild(indicator);
+        this.modeIndicator = indicator;
+    }
+    
+    showModeIndicator(mode) {
+        if (this.modeIndicator) {
+            this.modeIndicator.textContent = 'Fn+Space (or Ctrl+Space): クイック音声検索';
+            this.modeIndicator.style.display = 'block';
+        }
+    }
+    
+    hideModeIndicator() {
+        if (this.modeIndicator) {
+            this.modeIndicator.style.display = 'none';
+        }
+    }
+    
+    showQuickFeedback(message, type = 'info') {
+        // Create or update feedback overlay
+        let feedback = document.getElementById('fn-quick-feedback');
+        if (!feedback) {
+            feedback = document.createElement('div');
+            feedback.id = 'fn-quick-feedback';
+            feedback.style.cssText = `
+                position: fixed;
+                top: 70px;
+                right: 20px;
+                padding: 0.75rem 1rem;
+                border-radius: 8px;
+                font-size: 0.9rem;
+                z-index: 10001;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                min-width: 200px;
+                text-align: center;
+                transition: all 0.3s ease;
+            `;
+            document.body.appendChild(feedback);
+        }
+        
+        // Set styles based on type
+        const styles = {
+            recording: { bg: 'rgba(255, 0, 0, 0.9)', color: 'white' },
+            processing: { bg: 'rgba(0, 123, 255, 0.9)', color: 'white' },
+            success: { bg: 'rgba(40, 167, 69, 0.9)', color: 'white' },
+            error: { bg: 'rgba(220, 53, 69, 0.9)', color: 'white' },
+            info: { bg: 'rgba(108, 117, 125, 0.9)', color: 'white' }
+        };
+        
+        const style = styles[type] || styles.info;
+        feedback.style.background = style.bg;
+        feedback.style.color = style.color;
+        feedback.textContent = message;
+        feedback.style.display = 'block';
+        
+        // Auto-hide after delay (except for recording state)
+        if (type !== 'recording') {
+            setTimeout(() => {
+                if (feedback && feedback.parentNode) {
+                    feedback.style.display = 'none';
+                }
+            }, type === 'error' ? 3000 : 2000);
+        }
+    }
+    
+    getStatus() {
+        return {
+            isActive: this.isActive,
+            hotkey: this.hotkey ? this.hotkey.getStatus() : null,
+            recognition: this.recognition ? 'ready' : 'not_ready'
+        };
+    }
+}
+
+// Voice Enhancement Class for improved accuracy
+class VoiceEnhancement {
+    constructor() {
+        this.terminologyCorrections = new Map([
+            // AI・機械学習関連
+            ['えーあい', 'AI'],
+            ['あい', 'AI'],
+            ['きかいがくしゅう', '機械学習'],
+            ['でぃーぷらーにんぐ', 'ディープラーニング'],
+            ['にゅーらるねっとわーく', 'ニューラルネットワーク'],
+            ['じぇーぴーてぃー', 'GPT'],
+            ['おーぷんえーあい', 'OpenAI'],
+            
+            // プログラミング関連
+            ['じゃばすくりぷと', 'JavaScript'],
+            ['ぱいそん', 'Python'],
+            ['りあくと', 'React'],
+            ['のーどじぇーえす', 'Node.js'],
+            ['えいぴーあい', 'API'],
+            ['でーたべーす', 'データベース'],
+            
+            // ビジネス・技術用語
+            ['でじたるとらんすふぉーめーしょん', 'デジタルトランスフォーメーション'],
+            ['でぃーえっくす', 'DX'],
+            ['くらうど', 'クラウド'],
+            ['あまぞんうぇぶさーびす', 'AWS'],
+            ['ぐーぐるくらうど', 'Google Cloud']
+        ]);
+        
+        this.confidenceThreshold = 0.7;
+        this.contextWindow = [];
+    }
+    
+    // 信頼度フィルタリング
+    filterByConfidence(results, threshold = this.confidenceThreshold) {
+        if (!results || !results.length) return [];
+        return Array.from(results).filter(result => 
+            result.confidence >= threshold
+        );
+    }
+    
+    // 専門用語補正
+    correctTerminology(text) {
+        if (!text) return text;
+        
+        let correctedText = text;
+        
+        // ひらがな→専門用語変換
+        for (const [hiragana, term] of this.terminologyCorrections) {
+            const regex = new RegExp(hiragana, 'gi');
+            correctedText = correctedText.replace(regex, term);
+        }
+        
+        // 英語の音声認識ミス修正
+        correctedText = correctedText
+            .replace(/エーピーアイ/g, 'API')
+            .replace(/アイオーエス/g, 'iOS')
+            .replace(/アンドロイド/g, 'Android')
+            .replace(/ウィンドウズ/g, 'Windows')
+            .replace(/マックオーエス/g, 'macOS');
+        
+        return correctedText;
+    }
+    
+    // 文脈ベース補正（最高候補選択）
+    selectBestCandidate(alternatives, context = '') {
+        if (!alternatives || alternatives.length === 0) return '';
+        
+        // 単一候補の場合
+        if (alternatives.length === 1) {
+            return this.correctTerminology(alternatives[0].transcript);
+        }
+        
+        // 複数候補から最適選択
+        let bestCandidate = alternatives[0];
+        let bestScore = this.calculateCandidateScore(alternatives[0], context);
+        
+        for (let i = 1; i < alternatives.length; i++) {
+            const score = this.calculateCandidateScore(alternatives[i], context);
+            if (score > bestScore) {
+                bestCandidate = alternatives[i];
+                bestScore = score;
+            }
+        }
+        
+        return this.correctTerminology(bestCandidate.transcript);
+    }
+    
+    // 候補スコア算出（信頼度 + 文脈適合度）
+    calculateCandidateScore(candidate, context) {
+        let score = candidate.confidence || 0;
+        
+        // 文脈との適合度を加算
+        if (context && candidate.transcript) {
+            const transcript = candidate.transcript.toLowerCase();
+            const contextLower = context.toLowerCase();
+            
+            // 技術用語の文脈チェック
+            if (contextLower.includes('ai') || contextLower.includes('機械学習')) {
+                if (transcript.includes('ai') || transcript.includes('機械学習') || 
+                    transcript.includes('でぃーぷ') || transcript.includes('にゅーらる')) {
+                    score += 0.2;
+                }
+            }
+            
+            if (contextLower.includes('プログラミング') || contextLower.includes('開発')) {
+                if (transcript.includes('javascript') || transcript.includes('python') || 
+                    transcript.includes('りあくと') || transcript.includes('えーぴーあい')) {
+                    score += 0.2;
+                }
+            }
+        }
+        
+        return score;
+    }
+    
+    // 継続的学習用の文脈記録
+    updateContext(text) {
+        this.contextWindow.push(text);
+        if (this.contextWindow.length > 10) {
+            this.contextWindow.shift();
+        }
+    }
+    
+    // 現在の文脈取得
+    getCurrentContext() {
+        return this.contextWindow.join(' ');
+    }
+}
 
 class LiveReferenceInfo {
     constructor() {
@@ -23,6 +557,9 @@ class LiveReferenceInfo {
         this.bindEvents();
         this.updateTimestamp();
         this.loadSearchHistory();
+        
+        // Initialize advanced voice features
+        this.initializeFnKeyMode();
     }
     
     initializeElements() {
@@ -30,6 +567,7 @@ class LiveReferenceInfo {
         this.extractBtn = document.getElementById('extractBtn');
         this.clearBtn = document.getElementById('clearBtn');
         this.voiceBtn = document.getElementById('voiceBtn'); // 音声ボタン（存在しない場合はnull）
+        this.fnKeyBtn = document.getElementById('fnKeyBtn'); // Fn-Key mode toggle button
         this.historyBtn = document.getElementById('historyBtn'); // 検索履歴ボタン
         this.keywordTags = document.getElementById('keywordTags');
         this.searchStatus = document.getElementById('searchStatus');
@@ -88,6 +626,14 @@ class LiveReferenceInfo {
         if (this.historyBtn) {
             this.historyBtn.addEventListener('click', () => {
                 this.showSearchHistory();
+            });
+        }
+        
+        // Fn-Key Mode toggle button event
+        if (this.fnKeyBtn) {
+            this.fnKeyBtn.addEventListener('click', () => {
+                this.toggleFnKeyMode();
+                this.updateFnKeyButtonState();
             });
         }
         
@@ -1465,6 +2011,8 @@ Please respond concisely and clearly.`;
     initializeVoiceRecognition() {
         this.isListening = false;
         this.recognition = null;
+        this.audioContext = null;
+        this.voiceEnhancement = new VoiceEnhancement();
         
         // Web Speech API対応チェック
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
@@ -1478,10 +2026,17 @@ Please respond concisely and clearly.`;
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         this.recognition = new SpeechRecognition();
         
-        // 音声認識の設定
+        // 高精度音声認識設定
         this.recognition.continuous = true;
         this.recognition.interimResults = true;
+        this.recognition.maxAlternatives = 3;          // 複数候補取得
         this.recognition.lang = 'ja-JP';
+        
+        // 専門用語グラマー設定
+        this.setupVoiceGrammar();
+        
+        // 音声品質向上のためのオーディオ制約
+        this.setupAudioConstraints();
         
         // イベントリスナーの設定
         this.recognition.onstart = () => {
@@ -1517,11 +2072,27 @@ Please respond concisely and clearly.`;
             let interimTranscript = '';
             
             for (let i = event.resultIndex; i < event.results.length; i++) {
-                const transcript = event.results[i][0].transcript;
-                if (event.results[i].isFinal) {
-                    finalTranscript += transcript;
+                const result = event.results[i];
+                
+                if (result.isFinal) {
+                    // 高精度処理：複数候補から最適選択
+                    const context = this.voiceEnhancement.getCurrentContext();
+                    const alternatives = Array.from(result).map(alt => ({
+                        transcript: alt.transcript,
+                        confidence: alt.confidence
+                    }));
+                    
+                    const enhancedText = this.voiceEnhancement.selectBestCandidate(alternatives, context);
+                    finalTranscript += enhancedText;
+                    
+                    // 文脈更新
+                    this.voiceEnhancement.updateContext(enhancedText);
+                    
+                    console.log('🎤 Enhanced final:', enhancedText, 'confidence:', result[0].confidence);
                 } else {
-                    interimTranscript += transcript;
+                    // 中間結果は基本的な補正のみ
+                    const basicText = this.voiceEnhancement.correctTerminology(result[0].transcript);
+                    interimTranscript += basicText;
                 }
             }
             
@@ -1840,6 +2411,182 @@ Please respond concisely and clearly.`;
         if (statusEl) {
             statusEl.textContent = status;
         }
+    }
+    
+    // 専門用語グラマー設定
+    setupVoiceGrammar() {
+        try {
+            if ('webkitSpeechGrammarList' in window || 'SpeechGrammarList' in window) {
+                const SpeechGrammarList = window.SpeechGrammarList || window.webkitSpeechGrammarList;
+                const grammarList = new SpeechGrammarList();
+                
+                // JSGF (Java Speech Grammar Format) で専門用語を定義
+                const grammar = `
+                    #JSGF V1.0;
+                    grammar technicalTerms;
+                    public <term> = 
+                        AI | 機械学習 | ディープラーニング | ニューラルネットワーク |
+                        JavaScript | Python | React | API | データベース |
+                        クラウド | AWS | Google Cloud | Azure |
+                        プログラミング | 開発 | システム | アルゴリズム |
+                        デジタルトランスフォーメーション | DX | IoT | ブロックチェーン;
+                `;
+                
+                grammarList.addFromString(grammar, 1);
+                this.recognition.grammars = grammarList;
+                
+                console.log('[VOICE] Technical terminology grammar configured');
+            }
+        } catch (error) {
+            console.warn('[VOICE] Grammar setup skipped:', error.message);
+        }
+    }
+    
+    // 音声品質向上設定
+    async setupAudioConstraints() {
+        try {
+            // 高品質音声制約
+            const audioConstraints = {
+                audio: {
+                    echoCancellation: true,          // エコーキャンセレーション
+                    noiseSuppression: true,          // ノイズ抑制
+                    autoGainControl: true,           // 自動ゲイン調整
+                    sampleRate: { ideal: 48000 },    // 高サンプリングレート
+                    channelCount: { ideal: 1 },      // モノラル
+                    volume: { ideal: 1.0 }           // 最大音量
+                }
+            };
+            
+            // マイクアクセス許可確認（設定確認用）
+            const stream = await navigator.mediaDevices.getUserMedia(audioConstraints);
+            
+            // Audio Context で品質監視準備
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            const source = this.audioContext.createMediaStreamSource(stream);
+            const analyser = this.audioContext.createAnalyser();
+            
+            analyser.fftSize = 256;
+            source.connect(analyser);
+            
+            // 音声レベル監視
+            this.startAudioLevelMonitoring(analyser);
+            
+            console.log('[VOICE] High-quality audio settings applied');
+            
+            // ストリームを停止（設定確認のみ）
+            stream.getTracks().forEach(track => track.stop());
+            
+        } catch (error) {
+            console.warn('[VOICE] Audio constraint setup skipped:', error.message);
+        }
+    }
+    
+    // 音声レベル監視
+    startAudioLevelMonitoring(analyser) {
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        
+        const checkLevel = () => {
+            if (!this.isListening) return;
+            
+            analyser.getByteFrequencyData(dataArray);
+            const average = dataArray.reduce((sum, value) => sum + value, 0) / dataArray.length;
+            
+            // 音声レベルが低すぎる場合の警告
+            if (average < 10) {
+                console.warn('[VOICE] Audio level too low. Please speak closer to the microphone.');
+            }
+            
+            // 継続監視
+            requestAnimationFrame(checkLevel);
+        };
+        
+        if (this.isListening) {
+            requestAnimationFrame(checkLevel);
+        }
+    }
+    
+    // Fn-Key Mode initialization
+    initializeFnKeyMode() {
+        try {
+            // Initialize voice enhancement for better accuracy
+            this.voiceEnhancement = new VoiceEnhancement();
+            
+            // Create FnKeyMode with search function binding
+            this.fnKeyMode = new FnKeyMode(
+                this.voiceEnhancement,
+                (query) => this.performQuickSearch(query)
+            );
+            
+            // Activate FnKeyMode by default
+            this.fnKeyMode.activate();
+            
+            // Update button state
+            this.updateFnKeyButtonState();
+            
+            console.log('[INIT] Fn-Key Mode initialized - Press Fn+Space (or Ctrl+Space) for quick voice search');
+            
+        } catch (error) {
+            console.error('[INIT] Failed to initialize Fn-Key Mode:', error);
+        }
+    }
+    
+    // Quick search function for FnKeyMode
+    async performQuickSearch(query) {
+        try {
+            console.log('[QUICK_SEARCH] Processing query:', query);
+            
+            // Clear current input and set the voice query
+            if (this.inputText) {
+                this.inputText.value = query;
+                this.inputText.dispatchEvent(new Event('input'));
+            }
+            
+            // Extract keywords and perform search
+            await this.extractKeywordsEnhanced();
+            
+            // Scroll to results
+            const resultsSection = document.getElementById('results');
+            if (resultsSection) {
+                resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            
+        } catch (error) {
+            console.error('[QUICK_SEARCH] Error:', error);
+            throw error;
+        }
+    }
+    
+    // Toggle FnKeyMode on/off
+    toggleFnKeyMode() {
+        if (!this.fnKeyMode) return;
+        
+        if (this.fnKeyMode.getStatus().isActive) {
+            this.fnKeyMode.deactivate();
+            console.log('[TOGGLE] Fn-Key Mode deactivated');
+        } else {
+            this.fnKeyMode.activate();
+            console.log('[TOGGLE] Fn-Key Mode activated');
+        }
+    }
+    
+    // Update Fn-Key button visual state
+    updateFnKeyButtonState() {
+        if (!this.fnKeyBtn || !this.fnKeyMode) return;
+        
+        const isActive = this.fnKeyMode.getStatus().isActive;
+        
+        if (isActive) {
+            this.fnKeyBtn.classList.add('active');
+            this.fnKeyBtn.title = 'Fn+Space (or Ctrl+Space) Quick Voice Search (Active)';
+        } else {
+            this.fnKeyBtn.classList.remove('active');
+            this.fnKeyBtn.title = 'Fn+Space (or Ctrl+Space) Quick Voice Search (Disabled)';
+        }
+    }
+    
+    // Get FnKeyMode status for debugging
+    getFnKeyModeStatus() {
+        return this.fnKeyMode ? this.fnKeyMode.getStatus() : null;
     }
 }
 
