@@ -29,15 +29,25 @@ class LiveReferenceInfo {
         this.inputText = document.getElementById('inputText');
         this.extractBtn = document.getElementById('extractBtn');
         this.clearBtn = document.getElementById('clearBtn');
-        this.voiceBtn = document.getElementById('voiceBtn');
+        this.voiceBtn = document.getElementById('voiceBtn'); // 音声ボタン（存在しない場合はnull）
+        this.historyBtn = document.getElementById('historyBtn'); // 検索履歴ボタン
         this.keywordTags = document.getElementById('keywordTags');
         this.searchStatus = document.getElementById('searchStatus');
         this.searchResults = document.getElementById('searchResults');
         this.lastUpdate = document.getElementById('lastUpdate');
         this.searchCountEl = document.getElementById('searchCount');
         
-        // 音声認識の初期化
-        this.initializeVoiceRecognition();
+        // モーダル要素
+        this.historyModal = document.getElementById('historyModal');
+        this.closeHistory = document.getElementById('closeHistory');
+        this.historyList = document.getElementById('historyList');
+        
+        // 音声認識の初期化（voiceBtnが存在する場合のみ）
+        if (this.voiceBtn) {
+            this.initializeVoiceRecognition();
+        } else {
+            console.log('[INFO] 音声ボタンが見つかりません - 音声機能は無効化されました');
+        }
     }
     
     bindEvents() {
@@ -46,10 +56,16 @@ class LiveReferenceInfo {
             // 即座に視覚フィードバック
             this.showTypingFeedback();
             
-            clearTimeout(this.inputTimeout);
-            this.inputTimeout = setTimeout(() => {
-                this.extractKeywordsEnhanced();
-            }, this.settings.DEBOUNCE_TIME || 300); // 設定可能なデバウンス時間
+            // リアルタイム検索が有効な場合のみ自動実行
+            if (this.settings.ENABLE_REALTIME_SEARCH !== false) {
+                clearTimeout(this.inputTimeout);
+                this.inputTimeout = setTimeout(() => {
+                    const text = this.inputText.value.trim();
+                    if (text.length >= 15) { // 15文字以上でリアルタイム検索
+                        this.extractKeywordsEnhanced();
+                    }
+                }, this.settings.DEBOUNCE_TIME || 1000);
+            }
         });
         
         // ボタンイベント
@@ -61,10 +77,35 @@ class LiveReferenceInfo {
             this.clearAll();
         });
         
-        // 音声入力ボタンイベント
-        this.voiceBtn.addEventListener('click', () => {
-            this.toggleVoiceRecognition();
-        });
+        // 音声入力ボタンイベント（ボタンが存在する場合のみ）
+        if (this.voiceBtn) {
+            this.voiceBtn.addEventListener('click', () => {
+                this.toggleVoiceRecognition();
+            });
+        }
+        
+        // 検索履歴ボタンイベント
+        if (this.historyBtn) {
+            this.historyBtn.addEventListener('click', () => {
+                this.showSearchHistory();
+            });
+        }
+        
+        // モーダル閉じるボタン
+        if (this.closeHistory) {
+            this.closeHistory.addEventListener('click', () => {
+                this.hideSearchHistory();
+            });
+        }
+        
+        // モーダル背景クリックで閉じる
+        if (this.historyModal) {
+            this.historyModal.addEventListener('click', (e) => {
+                if (e.target === this.historyModal) {
+                    this.hideSearchHistory();
+                }
+            });
+        }
         
         // エンターキーで抽出実行
         this.inputText.addEventListener('keydown', (e) => {
@@ -84,9 +125,9 @@ class LiveReferenceInfo {
         if (envKey && envKey !== '' && envKey !== 'your_openai_api_key_here') {
             this.OPENAI_API_KEY = envKey;
             this.OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
-            console.log('[SUCCESS] .envファイルからAPIキーを読み込みました');
+            console.log('[SUCCESS] OpenAI API key loaded from .env file');
             if (this.searchStatus) {
-                this.updateSearchStatus('システム準備完了 - AI機能有効（.env）');
+                this.updateSearchStatus('System ready - AI features enabled (.env)');
             }
             return;
         }
@@ -106,21 +147,21 @@ class LiveReferenceInfo {
                               this.OPENAI_API_KEY.startsWith('sk-');
             
             if (isValidKey) {
-                console.log('[SUCCESS] config.jsからAPIキーを読み込みました');
+                console.log('[SUCCESS] OpenAI API key loaded from config.js');
                 if (this.searchStatus) {
-                    this.updateSearchStatus('システム準備完了 - AI機能有効（config.js）');
+                    this.updateSearchStatus('System ready - AI features enabled');
                 }
             } else {
-                console.warn('[WARNING] OpenAI API キーが未設定 - Wikipedia検索のみ利用可能');
-                console.log('[INFO] AI機能を有効にするには .env または config.js でAPIキーを設定してください');
+                console.warn('[WARNING] OpenAI API key not configured - Wikipedia search only');
+                console.log('[INFO] Configure API key in .env or config.js to enable AI features');
                 if (this.searchStatus) {
-                    this.updateSearchStatus('システム準備完了 - Wikipedia検索モード');
+                    this.updateSearchStatus('System ready - Wikipedia search mode');
                 }
             }
         } else {
-            console.error('[ERROR] 設定ファイル config.js が見つかりません');
+            console.error('[ERROR] Configuration file config.js not found');
             if (this.searchStatus) {
-                this.updateSearchStatus('設定エラー - config.js を確認してください');
+                this.updateSearchStatus('Configuration error - check config.js');
             }
         }
     }
@@ -129,26 +170,26 @@ class LiveReferenceInfo {
     showTypingFeedback() {
         const text = this.inputText.value.trim();
         if (text.length > 10) {
-            this.updateSearchStatus('入力中... (AIキーワード解析準備)');
+            this.updateSearchStatus('Typing... (AI keyword analysis ready)');
         } else if (text.length > 0) {
-            this.updateSearchStatus('入力中...');
+            this.updateSearchStatus('Typing...');
         } else {
-            this.updateSearchStatus('キーワードを入力して検索を開始してください');
+            this.updateSearchStatus('Enter keywords to begin searching');
         }
     }
     
     // 強化されたキーワード抽出（AIベース）
     async extractKeywordsEnhanced() {
         const text = this.inputText.value.trim();
-        console.log('[SEARCH] キーワード抽出開始:', text);
+        console.log('[SEARCH] Starting keyword extraction:', text);
         
         if (text.length < 10) {
-            this.updateSearchStatus('もう少し長いテキストを入力してください（10文字以上）');
+            this.updateSearchStatus('Please enter longer text (10+ characters)');
             return;
         }
         
         try {
-            this.updateSearchStatus('キーワード抽出中...');
+            this.updateSearchStatus('Extracting keywords...');
             
             let keywords = [];
             
@@ -158,6 +199,8 @@ class LiveReferenceInfo {
                                  this.OPENAI_API_KEY !== 'YOUR_OPENAI_API_KEY_HERE' &&
                                  this.OPENAI_API_KEY !== 'your_openai_api_key_here' &&
                                  this.OPENAI_API_KEY.startsWith('sk-');
+            
+            console.log('[API] OpenAI API key available:', isValidAPIKey);
             
             // AI抽出を優先（有効なAPIキーがある場合のみ）
             if (isValidAPIKey) {
@@ -210,7 +253,7 @@ class LiveReferenceInfo {
             this.saveToHistory(text, keywords);
             
             // 自動検索を実行
-            this.updateSearchStatus(`${keywords.length}個のキーワードを抽出しました`);
+            this.updateSearchStatus(`Extracted ${keywords.length} keywords`);
             this.updateTimestamp();
             
             // Wikipedia検索を実行（OpenAI無効時はWikipediaのみ）
@@ -221,8 +264,8 @@ class LiveReferenceInfo {
             }
             
         } catch (error) {
-            console.error('[ERROR] キーワード抽出エラー:', error);
-            this.updateSearchStatus('キーワード抽出でエラーが発生しました');
+            console.error('[ERROR] Keyword extraction error:', error);
+            this.updateSearchStatus('Error occurred during keyword extraction');
         }
     }
     
@@ -249,7 +292,7 @@ class LiveReferenceInfo {
     
     // Wikipedia専用検索（OpenAI無効時）
     async searchWithWikipediaOnly(keywords) {
-        this.updateSearchStatus('Wikipedia検索中...');
+        this.updateSearchStatus('Searching Wikipedia...');
         this.searchResults.innerHTML = '';
         
         try {
@@ -268,11 +311,11 @@ class LiveReferenceInfo {
             this.markKeywordsAsSearched();
             this.searchCount++;
             this.updateSearchCount();
-            this.updateSearchStatus(`Wikipedia検索完了: ${keywords.length}個のキーワード`);
+            this.updateSearchStatus(`Wikipedia search completed: ${keywords.length} keywords`);
             
         } catch (error) {
             console.error('Wikipedia Search error:', error);
-            this.updateSearchStatus('Wikipedia検索エラーが発生しました');
+            this.updateSearchStatus('Wikipedia search error occurred');
         }
     }
     
@@ -891,60 +934,51 @@ class LiveReferenceInfo {
     
     // 検索履歴の表示
     showSearchHistory() {
-        const historyModal = document.createElement('div');
-        historyModal.className = 'history-modal';
-        historyModal.innerHTML = `
-            <div class="history-content">
-                <div class="history-header">
-                    <h3>検索履歴</h3>
-                    <button class="close-history">X</button>
-                </div>
-                <div class="history-list">
-                    ${this.searchHistory.map((item, index) => `
-                        <div class="history-item" data-index="${index}">
-                            <div class="history-text">${item.text}</div>
-                            <div class="history-keywords">
-                                ${item.keywords.map(keyword => `
-                                    <span class="history-keyword">${keyword}</span>
-                                `).join('')}
-                            </div>
-                            <div class="history-meta">
-                                ${new Date(item.timestamp).toLocaleString('ja-JP')}
-                            </div>
-                        </div>
+        if (!this.historyModal || !this.historyList) {
+            console.warn('検索履歴モーダルが見つかりません');
+            return;
+        }
+        
+        // 履歴リストを更新
+        this.historyList.innerHTML = this.searchHistory.map((item, index) => `
+            <div class="history-item" data-index="${index}">
+                <div class="history-text">${item.text}</div>
+                <div class="history-keywords">
+                    ${item.keywords.map(keyword => `
+                        <span class="history-keyword">${keyword}</span>
                     `).join('')}
                 </div>
+                <div class="history-meta">
+                    ${new Date(item.timestamp).toLocaleString('ja-JP')}
+                </div>
             </div>
-        `;
-        
-        // イベントリスナー
-        historyModal.querySelector('.close-history').addEventListener('click', () => {
-            historyModal.remove();
-        });
-        
-        historyModal.addEventListener('click', (e) => {
-            if (e.target === historyModal) {
-                historyModal.remove();
-            }
-        });
+        `).join('');
         
         // 履歴アイテムクリックで復元
-        historyModal.querySelectorAll('.history-item').forEach(item => {
+        this.historyList.querySelectorAll('.history-item').forEach(item => {
             item.addEventListener('click', () => {
                 const index = parseInt(item.dataset.index);
                 const historyItem = this.searchHistory[index];
                 this.inputText.value = historyItem.text;
                 this.extractKeywordsEnhanced();
-                historyModal.remove();
+                this.hideSearchHistory();
             });
         });
         
-        document.body.appendChild(historyModal);
+        // モーダルを表示
+        this.historyModal.style.display = 'flex';
+    }
+    
+    // 検索履歴の非表示
+    hideSearchHistory() {
+        if (this.historyModal) {
+            this.historyModal.style.display = 'none';
+        }
     }
     
     // OpenAI APIを使ったリアルタイム検索
     async searchWithOpenAI(keywords, fullText) {
-        this.updateSearchStatus('AI検索中... (OpenAI Realtime API)');
+        this.updateSearchStatus('AI searching... (OpenAI Realtime API)');
         this.searchResults.innerHTML = '';
         
         try {
@@ -956,11 +990,11 @@ class LiveReferenceInfo {
             this.markKeywordsAsSearched();
             this.searchCount++;
             this.updateSearchCount();
-            this.updateSearchStatus(`AI検索完了: ${keywords.length}個のキーワード`);
+            this.updateSearchStatus(`AI search completed: ${keywords.length} keywords`);
             
         } catch (error) {
             console.error('OpenAI Search error:', error);
-            this.updateSearchStatus('AI検索エラーが発生しました');
+            this.updateSearchStatus('AI search error occurred');
         }
     }
     
@@ -978,15 +1012,15 @@ class LiveReferenceInfo {
         }
         
         try {
-            const prompt = `"${keyword}"について、以下を含む簡潔で有用な情報を教えてください：
+            const prompt = `Provide concise and useful information about "${keyword}" including:
 
-1. 基本的な説明（100文字程度）
-2. 主な特徴や用途
-3. 現在のトレンドや最新情報
+1. Basic explanation (about 100 words)
+2. Main features and applications
+3. Current trends or latest information
 
-${context ? `\n参考文脈: "${context}"` : ''}
+${context ? `\nContext: "${context}"` : ''}
 
-簡潔で分かりやすく回答してください。`;
+Please respond concisely and clearly.`;
 
             const response = await fetch(this.OPENAI_API_URL, {
                 method: 'POST',
@@ -1007,11 +1041,11 @@ ${context ? `\n参考文脈: "${context}"` : ''}
                 console.error(`OpenAI API error (${response.status}):`, errorText);
                 
                 if (response.status === 401) {
-                    console.warn('[API] APIキーが無効です。.envファイルまたはconfig.jsを確認してください。');
+                    console.warn('[API] Invalid API key. Check .env file or config.js.');
                 } else if (response.status === 429) {
-                    console.warn('[RATE] API利用制限に達しました。しばらく待ってから再試行してください。');
+                    console.warn('[RATE] API rate limit reached. Please wait and try again.');
                 } else if (response.status === 403) {
-                    console.warn('[ACCESS] APIアクセスが拒否されました。アカウント設定を確認してください。');
+                    console.warn('[ACCESS] API access denied. Check your account settings.');
                 }
                 
                 // エラー時はWikipediaにフォールバック
@@ -1019,7 +1053,7 @@ ${context ? `\n参考文脈: "${context}"` : ''}
             }
 
             const data = await response.json();
-            const content = data.choices[0]?.message?.content || '情報を取得できませんでした';
+            const content = data.choices[0]?.message?.content || 'Could not retrieve information';
             
             return {
                 title: `AI: ${keyword}`,
@@ -1212,11 +1246,11 @@ ${context ? `\n参考文脈: "${context}"` : ''}
             hour: '2-digit',
             minute: '2-digit'
         });
-        this.lastUpdate.textContent = `最終更新: ${timeString}`;
+        this.lastUpdate.textContent = `Last update: ${timeString}`;
     }
     
     updateSearchCount() {
-        this.searchCountEl.textContent = `検索回数: ${this.searchCount}`;
+        this.searchCountEl.textContent = `Search count: ${this.searchCount}`;
     }
     
     // 入力テキスト内のキーワードをハイライト
@@ -1315,7 +1349,7 @@ ${context ? `\n参考文脈: "${context}"` : ''}
         this.keywordTags.innerHTML = '';
         this.searchResults.innerHTML = '';
         this.keywords.clear();
-        this.updateSearchStatus('キーワードを入力して検索を開始してください');
+        this.updateSearchStatus('Enter keywords to begin searching');
         this.updateTimestamp();
         
         // ハイライトオーバーレイを削除
@@ -1458,9 +1492,9 @@ ${context ? `\n参考文脈: "${context}"` : ''}
                     <rect x="6" y="4" width="4" height="16"></rect>
                     <rect x="14" y="4" width="4" height="16"></rect>
                 </svg>
-                <span>停止</span>
+                <span>Stop</span>
             `;
-            this.showStatus('🎤 音声認識中...', 'success');
+            this.updateSearchStatus('Voice recognition active...');
         };
         
         this.recognition.onend = () => {
@@ -1473,9 +1507,9 @@ ${context ? `\n参考文脈: "${context}"` : ''}
                     <line x1="12" y1="19" x2="12" y2="23"></line>
                     <line x1="8" y1="23" x2="16" y2="23"></line>
                 </svg>
-                <span>音声入力</span>
+                <span>Voice Input</span>
             `;
-            this.showStatus('音声認識を停止しました', 'info');
+            this.updateSearchStatus('Voice recognition stopped');
         };
         
         this.recognition.onresult = (event) => {
@@ -1493,7 +1527,7 @@ ${context ? `\n参考文脈: "${context}"` : ''}
             
             // リアルタイム処理：中間結果でもキーワード抽出
             const combinedText = this.inputText.value + ' ' + interimTranscript + ' ' + finalTranscript;
-            console.log('🎤 音声認識結果 - 中間:', interimTranscript, '確定:', finalTranscript);
+            console.log('🎤 Voice recognition - interim:', interimTranscript, 'final:', finalTranscript);
             
             // 中間結果をリアルタイム表示（薄い表示）
             if (interimTranscript) {

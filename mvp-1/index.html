@@ -12,28 +12,30 @@
 <body>
     <div class="container">
         <header>
-            <h1>🎤 Live Reference Info</h1>
-            <p class="subtitle">リアルタイム参考情報表示ツール - MVP-1</p>
+            <h1>Live Reference Info</h1>
+            <p class="subtitle">Real-time contextual information display</p>
         </header>
         
         <main class="main-content">
             <!-- 左カラム: 入力エリア -->
             <div class="input-panel">
                 <div class="panel">
-                    <h2>📝 テキスト入力</h2>
+                    <h2>Text Input</h2>
                     <textarea 
                         id="inputText" 
-                        placeholder="ここにテキストを入力してください&#10;（手入力・音声認識結果・ペースト対応）"
+                        placeholder="Enter text here or use voice input"
                         rows="10"
                     ></textarea>
                     
                     <div class="controls">
-                        <button id="extractBtn" class="btn-primary">🔍 キーワード抽出</button>
-                        <button id="clearBtn" class="btn-secondary">🗑️ クリア</button>
+                        <button id="extractBtn" class="btn-primary">Extract Keywords</button>
+                        <button id="voiceBtn" class="btn-voice">Voice Input</button>
+                        <button id="historyBtn" class="btn-secondary">Search History</button>
+                        <button id="clearBtn" class="btn-secondary">Clear</button>
                     </div>
                     
                     <div class="keywords-section">
-                        <h3>🏷️ 抽出キーワード</h3>
+                        <h3>Extracted Keywords</h3>
                         <div id="keywordTags" class="keyword-tags"></div>
                     </div>
                 </div>
@@ -42,9 +44,9 @@
             <!-- 右カラム: 検索結果 -->
             <div class="results-panel">
                 <div class="panel">
-                    <h2>📋 検索結果</h2>
+                    <h2>Search Results</h2>
                     <div id="searchStatus" class="search-status">
-                        キーワードを入力して検索を開始してください
+                        Enter keywords to begin searching
                     </div>
                     <div id="searchResults" class="search-results"></div>
                 </div>
@@ -53,10 +55,23 @@
         
         <footer>
             <div class="status-bar">
-                <span id="lastUpdate">最終更新: --:--</span>
-                <span id="searchCount">検索回数: 0</span>
+                <span id="lastUpdate">Last update: --:--</span>
+                <span id="searchCount">Search count: 0</span>
             </div>
         </footer>
+    </div>
+    
+    <!-- 検索履歴モーダル -->
+    <div id="historyModal" class="history-modal" style="display: none;">
+        <div class="history-content">
+            <div class="history-header">
+                <h3>Search History</h3>
+                <button id="closeHistory" class="close-history">×</button>
+            </div>
+            <div id="historyList" class="history-list">
+                <!-- 履歴項目が動的に追加されます -->
+            </div>
+        </div>
     </div>
     
     <script src="load-env.js"></script>

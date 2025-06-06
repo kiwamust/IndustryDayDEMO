@@ -18,19 +18,20 @@ window.LIVE_REFERENCE_CONFIG = {
     // その他の設定
     SETTINGS: {
         // リアルタイム更新の間隔（ミリ秒）
-        DEBOUNCE_TIME: 300,
+        DEBOUNCE_TIME: 1000,  // 1秒に調整（レスポンシブな体験）
         
         // 最大キーワード数
-        MAX_KEYWORDS: 5,
+        MAX_KEYWORDS: 3,      // 3個に削減（高速化）
         
         // OpenAI設定
         OPENAI_MODEL: 'gpt-4o-mini',     // gpt-4o-mini | gpt-4o | gpt-3.5-turbo
-        OPENAI_MAX_TOKENS: 500,          // 100-1000 (コスト vs 品質)
-        OPENAI_TEMPERATURE: 0.7,         // 0.0-1.0 (正確性 vs 創造性)
+        OPENAI_MAX_TOKENS: 300,          // 300に削減（高速化）
+        OPENAI_TEMPERATURE: 0.3,         // 0.3に調整（バランス）
         
         // 表示設定
         ENABLE_TYPING_FEEDBACK: true,    // タイピング中のフィードバック
-        ENABLE_ANIMATIONS: true          // アニメーション効果
+        ENABLE_ANIMATIONS: true,         // アニメーション効果
+        ENABLE_REALTIME_SEARCH: true     // リアルタイム検索を有効化
     }
 };
 
