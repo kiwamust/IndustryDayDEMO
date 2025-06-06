@@ -1,10 +1,12 @@
-// Live Reference Info - MVP-1 JavaScript with OpenAI Realtime API
+// Live Reference Info - MVP-1 JavaScript with Enhanced AI Keyword Extraction
 
 class LiveReferenceInfo {
     constructor() {
         this.searchCount = 0;
         this.keywords = new Set();
         this.searchHistory = [];
+        this.keywordCategories = new Map(); // キーワードのカテゴリ分類
+        this.relatedTerms = new Map(); // 関連語のマッピング
         
         // OpenAI API設定（.env または config.js から取得）
         this.config = window.LIVE_REFERENCE_CONFIG || {};
@@ -15,6 +17,7 @@ class LiveReferenceInfo {
         this.initializeElements();
         this.bindEvents();
         this.updateTimestamp();
+        this.loadSearchHistory();
     }
     
     initializeElements() {
@@ -36,13 +39,13 @@ class LiveReferenceInfo {
             
             clearTimeout(this.inputTimeout);
             this.inputTimeout = setTimeout(() => {
-                this.extractKeywords();
+                this.extractKeywordsEnhanced();
             }, this.settings.DEBOUNCE_TIME || 300); // 設定可能なデバウンス時間
         });
         
         // ボタンイベント
         this.extractBtn.addEventListener('click', () => {
-            this.extractKeywords();
+            this.extractKeywordsEnhanced();
         });
         
         this.clearBtn.addEventListener('click', () => {
@@ -53,7 +56,7 @@ class LiveReferenceInfo {
         this.inputText.addEventListener('keydown', (e) => {
             if (e.ctrlKey && e.key === 'Enter') {
                 e.preventDefault();
-                this.extractKeywords();
+                this.extractKeywordsEnhanced();
             }
         });
     }
@@ -86,11 +89,209 @@ class LiveReferenceInfo {
     showTypingFeedback() {
         const text = this.inputText.value.trim();
         if (text.length > 10) {
-            this.updateSearchStatus('⌨️ 入力中... (リアルタイム解析準備)');
+            this.updateSearchStatus('⌨️ 入力中... (AIキーワード解析準備)');
         } else if (text.length > 0) {
             this.updateSearchStatus('✏️ 入力中...');
         } else {
             this.updateSearchStatus('キーワードを入力して検索を開始してください');
+        }
+    }
+    
+    // 強化されたキーワード抽出（AIベース）
+    async extractKeywordsEnhanced() {
+        const text = this.inputText.value.trim();
+        if (!text) {
+            this.updateSearchStatus('テキストを入力してください');
+            return;
+        }
+        
+        this.updateSearchStatus('🤖 AIキーワード抽出中...');
+        
+        try {
+            // AIベースのキーワード抽出とローカル抽出の組み合わせ
+            const aiKeywords = await this.extractKeywordsWithAI(text);
+            const localKeywords = this.performKeywordExtraction(text);
+            
+            // 重複除去と統合
+            const allKeywords = [...new Set([...aiKeywords, ...localKeywords])]
+                .slice(0, this.settings.MAX_KEYWORDS || 8);
+            
+            if (allKeywords.length === 0) {
+                this.updateSearchStatus('キーワードが見つかりませんでした');
+                return;
+            }
+            
+            // カテゴリ分類
+            await this.categorizeKeywords(allKeywords, text);
+            
+            this.displayKeywordsEnhanced(allKeywords);
+            this.searchWithOpenAI(allKeywords, text);
+            this.saveToHistory(text, allKeywords);
+            this.updateTimestamp();
+            
+        } catch (error) {
+            console.error('Enhanced keyword extraction error:', error);
+            // フォールバック: ローカル抽出のみ
+            const keywords = this.performKeywordExtraction(text);
+            this.displayKeywords(keywords);
+            this.searchWithOpenAI(keywords, text);
+        }
+    }
+    
+    // AIを使ったキーワード抽出
+    async extractKeywordsWithAI(text) {
+        if (!this.OPENAI_API_KEY || this.OPENAI_API_KEY === 'YOUR_OPENAI_API_KEY') {
+            return [];
+        }
+        
+        const prompt = `以下のテキストから、重要なキーワード（専門用語、固有名詞、技術用語、概念）を最大5個抽出してください。
+各キーワードは1行に1つずつ、余計な説明なしで出力してください。
+
+テキスト: "${text}"
+
+キーワード:`;
+
+        try {
+            const response = await fetch(this.OPENAI_API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.OPENAI_API_KEY}`
+                },
+                body: JSON.stringify({
+                    model: this.settings.OPENAI_MODEL || 'gpt-4o-mini',
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'あなたは専門的なキーワード抽出エキスパートです。テキストから最も重要で検索価値の高いキーワードを正確に抽出してください。'
+                        },
+                        {
+                            role: 'user',
+                            content: prompt
+                        }
+                    ],
+                    max_tokens: 200,
+                    temperature: 0.3
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`OpenAI API error: ${response.status}`);
+            }
+
+            const data = await response.json();
+            const content = data.choices[0]?.message?.content || '';
+            
+            // レスポンスから行ごとにキーワードを抽出
+            return content.split('\n')
+                .map(line => line.trim().replace(/^[-*•]?\s*/, ''))
+                .filter(keyword => keyword.length > 0 && keyword.length < 50)
+                .slice(0, 5);
+
+        } catch (error) {
+            console.error('AI keyword extraction error:', error);
+            return [];
+        }
+    }
+    
+    // キーワードのカテゴリ分類
+    async categorizeKeywords(keywords, context) {
+        if (!this.OPENAI_API_KEY || this.OPENAI_API_KEY === 'YOUR_OPENAI_API_KEY') {
+            // ローカルカテゴリ分類
+            keywords.forEach(keyword => {
+                this.keywordCategories.set(keyword, this.getLocalCategory(keyword));
+            });
+            return;
+        }
+        
+        const prompt = `以下のキーワードを技術分野別にカテゴリ分類してください。
+コンテキスト: "${context}"
+
+キーワード: ${keywords.join(', ')}
+
+各キーワードに対して「キーワード: カテゴリ」の形式で回答してください。
+カテゴリは以下から選択: 技術, 科学, ビジネス, 学術, エンターテイメント, その他`;
+
+        try {
+            const response = await fetch(this.OPENAI_API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.OPENAI_API_KEY}`
+                },
+                body: JSON.stringify({
+                    model: this.settings.OPENAI_MODEL || 'gpt-4o-mini',
+                    messages: [{ role: 'user', content: prompt }],
+                    max_tokens: 300,
+                    temperature: 0.2
+                })
+            });
+
+            if (!response.ok) throw new Error(`OpenAI API error: ${response.status}`);
+
+            const data = await response.json();
+            const content = data.choices[0]?.message?.content || '';
+            
+            // カテゴリ情報を解析してマップに保存
+            content.split('\n').forEach(line => {
+                const match = line.match(/^(.+?):\s*(.+)$/);
+                if (match) {
+                    const [, keyword, category] = match;
+                    this.keywordCategories.set(keyword.trim(), category.trim());
+                }
+            });
+
+        } catch (error) {
+            console.error('Category classification error:', error);
+            // フォールバック: ローカル分類
+            keywords.forEach(keyword => {
+                this.keywordCategories.set(keyword, this.getLocalCategory(keyword));
+            });
+        }
+    }
+    
+    // ローカルカテゴリ分類
+    getLocalCategory(keyword) {
+        const techTerms = ['AI', 'ML', 'API', 'JavaScript', 'Python', 'React', 'プログラミング', '機械学習', '人工知能'];
+        const scienceTerms = ['アルゴリズム', 'データサイエンス', '統計', '数学', '物理'];
+        const businessTerms = ['マーケティング', 'ビジネス', '経営', '戦略', '企業'];
+        
+        if (techTerms.some(term => keyword.includes(term))) return '技術';
+        if (scienceTerms.some(term => keyword.includes(term))) return '科学';
+        if (businessTerms.some(term => keyword.includes(term))) return 'ビジネス';
+        return 'その他';
+    }
+    
+    // 検索履歴の保存
+    saveToHistory(text, keywords) {
+        const historyItem = {
+            timestamp: new Date().toISOString(),
+            text: text.substring(0, 100) + (text.length > 100 ? '...' : ''),
+            keywords: keywords,
+            searchCount: this.searchCount + 1
+        };
+        
+        this.searchHistory.unshift(historyItem);
+        this.searchHistory = this.searchHistory.slice(0, 10); // 最新10件まで保持
+        
+        // ローカルストレージに保存
+        try {
+            localStorage.setItem('liveReference_history', JSON.stringify(this.searchHistory));
+        } catch (error) {
+            console.warn('Failed to save history:', error);
+        }
+    }
+    
+    // 検索履歴の読み込み
+    loadSearchHistory() {
+        try {
+            const saved = localStorage.getItem('liveReference_history');
+            if (saved) {
+                this.searchHistory = JSON.parse(saved);
+            }
+        } catch (error) {
+            console.warn('Failed to load history:', error);
+            this.searchHistory = [];
         }
     }
     
@@ -199,6 +400,221 @@ class LiveReferenceInfo {
             this.keywordTags.appendChild(tag);
             this.keywords.add(keyword);
         });
+    }
+    
+    // 強化されたキーワード表示（カテゴリ付き）
+    displayKeywordsEnhanced(keywords) {
+        this.keywordTags.innerHTML = '';
+        
+        // カテゴリ別にグループ化
+        const categoryGroups = new Map();
+        keywords.forEach(keyword => {
+            const category = this.keywordCategories.get(keyword) || 'その他';
+            if (!categoryGroups.has(category)) {
+                categoryGroups.set(category, []);
+            }
+            categoryGroups.get(category).push(keyword);
+        });
+        
+        // カテゴリごとに表示
+        categoryGroups.forEach((categoryKeywords, category) => {
+            // カテゴリヘッダー
+            if (categoryGroups.size > 1) {
+                const categoryHeader = document.createElement('div');
+                categoryHeader.className = 'category-header';
+                categoryHeader.innerHTML = `
+                    <span class="category-icon">${this.getCategoryIcon(category)}</span>
+                    <span class="category-name">${category}</span>
+                `;
+                this.keywordTags.appendChild(categoryHeader);
+            }
+            
+            // キーワードタグ
+            categoryKeywords.forEach(keyword => {
+                const tag = document.createElement('span');
+                tag.className = `keyword-tag searching category-${category.toLowerCase()}`;
+                tag.innerHTML = `
+                    <span class="keyword-text">${keyword}</span>
+                    <span class="keyword-actions">
+                        <button class="related-btn" title="関連語検索">🔗</button>
+                        <button class="single-search-btn" title="単独検索">🔍</button>
+                    </span>
+                `;
+                
+                // イベントリスナー
+                tag.querySelector('.single-search-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.searchSingleKeyword(keyword);
+                });
+                
+                tag.querySelector('.related-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.searchRelatedTerms(keyword);
+                });
+                
+                tag.addEventListener('click', () => {
+                    this.searchSingleKeyword(keyword);
+                });
+                
+                this.keywordTags.appendChild(tag);
+                this.keywords.add(keyword);
+            });
+        });
+        
+        // 検索履歴ボタンを追加
+        this.addHistoryButton();
+    }
+    
+    // カテゴリアイコンの取得
+    getCategoryIcon(category) {
+        const icons = {
+            '技術': '💻',
+            '科学': '🔬',
+            'ビジネス': '💼',
+            '学術': '📚',
+            'エンターテイメント': '🎭',
+            'その他': '📝'
+        };
+        return icons[category] || '📝';
+    }
+    
+    // 関連語検索
+    async searchRelatedTerms(keyword) {
+        this.updateSearchStatus(`🔗 "${keyword}" の関連語を検索中...`);
+        
+        if (!this.OPENAI_API_KEY || this.OPENAI_API_KEY === 'YOUR_OPENAI_API_KEY') {
+            this.updateSearchStatus('❌ 関連語検索にはAPIキーが必要です');
+            return;
+        }
+        
+        const prompt = `"${keyword}"に関連する重要なキーワードを3-5個教えてください。
+各キーワードは1行に1つずつ、簡潔に出力してください。`;
+
+        try {
+            const response = await fetch(this.OPENAI_API_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${this.OPENAI_API_KEY}`
+                },
+                body: JSON.stringify({
+                    model: this.settings.OPENAI_MODEL || 'gpt-4o-mini',
+                    messages: [{ role: 'user', content: prompt }],
+                    max_tokens: 150,
+                    temperature: 0.5
+                })
+            });
+
+            if (!response.ok) throw new Error(`OpenAI API error: ${response.status}`);
+
+            const data = await response.json();
+            const content = data.choices[0]?.message?.content || '';
+            
+            const relatedTerms = content.split('\n')
+                .map(line => line.trim().replace(/^[-*•]?\s*/, ''))
+                .filter(term => term.length > 0 && term.length < 50)
+                .slice(0, 5);
+            
+            this.relatedTerms.set(keyword, relatedTerms);
+            this.displayRelatedTerms(keyword, relatedTerms);
+            this.updateSearchStatus(`✨ "${keyword}" の関連語検索完了`);
+            
+        } catch (error) {
+            console.error('Related terms search error:', error);
+            this.updateSearchStatus(`❌ "${keyword}" の関連語検索でエラーが発生しました`);
+        }
+    }
+    
+    // 関連語の表示
+    displayRelatedTerms(originalKeyword, relatedTerms) {
+        const relatedContainer = document.createElement('div');
+        relatedContainer.className = 'related-terms-container';
+        relatedContainer.innerHTML = `
+            <div class="related-header">
+                <span class="related-icon">🔗</span>
+                <span class="related-title">"${originalKeyword}" の関連語</span>
+            </div>
+            <div class="related-terms">
+                ${relatedTerms.map(term => `
+                    <span class="related-term" onclick="window.liveReferenceInfo.searchSingleKeyword('${term}')">
+                        ${term}
+                    </span>
+                `).join('')}
+            </div>
+        `;
+        
+        // 既存の関連語コンテナを削除
+        const existing = this.keywordTags.querySelector('.related-terms-container');
+        if (existing) existing.remove();
+        
+        this.keywordTags.appendChild(relatedContainer);
+    }
+    
+    // 検索履歴ボタンの追加
+    addHistoryButton() {
+        if (this.searchHistory.length === 0) return;
+        
+        const historyButton = document.createElement('button');
+        historyButton.className = 'history-button';
+        historyButton.innerHTML = `📚 履歴 (${this.searchHistory.length})`;
+        historyButton.addEventListener('click', () => {
+            this.showSearchHistory();
+        });
+        
+        this.keywordTags.appendChild(historyButton);
+    }
+    
+    // 検索履歴の表示
+    showSearchHistory() {
+        const historyModal = document.createElement('div');
+        historyModal.className = 'history-modal';
+        historyModal.innerHTML = `
+            <div class="history-content">
+                <div class="history-header">
+                    <h3>🕒 検索履歴</h3>
+                    <button class="close-history">✕</button>
+                </div>
+                <div class="history-list">
+                    ${this.searchHistory.map((item, index) => `
+                        <div class="history-item" data-index="${index}">
+                            <div class="history-text">${item.text}</div>
+                            <div class="history-keywords">
+                                ${item.keywords.map(keyword => `
+                                    <span class="history-keyword">${keyword}</span>
+                                `).join('')}
+                            </div>
+                            <div class="history-meta">
+                                ${new Date(item.timestamp).toLocaleString('ja-JP')}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        `;
+        
+        // イベントリスナー
+        historyModal.querySelector('.close-history').addEventListener('click', () => {
+            historyModal.remove();
+        });
+        
+        historyModal.addEventListener('click', (e) => {
+            if (e.target === historyModal) {
+                historyModal.remove();
+            }
+        });
+        
+        // 履歴アイテムクリックで復元
+        historyModal.querySelectorAll('.history-item').forEach(item => {
+            item.addEventListener('click', () => {
+                const index = parseInt(item.dataset.index);
+                const historyItem = this.searchHistory[index];
+                this.inputText.value = historyItem.text;
+                this.extractKeywordsEnhanced();
+                historyModal.remove();
+            });
+        });
+        
+        document.body.appendChild(historyModal);
     }
     
     // OpenAI APIを使ったリアルタイム検索
